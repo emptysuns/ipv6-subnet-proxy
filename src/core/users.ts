@@ -3,6 +3,7 @@ import bcrypt from 'bcrypt';
 import { getDb } from '../database/connection';
 import { loadConfig } from '../config';
 import { getLogger } from '../utils/logger';
+import { getActiveSessions, forceDisconnect } from './sessions';
 
 export interface User {
   id: string;
@@ -122,6 +123,14 @@ export function disableUser(id: string): User {
 export function deleteUser(id: string): void {
   const db = getDb();
   const log = getLogger();
+
+  // Disconnect all active sessions for this user
+  const sessions = getActiveSessions().filter(s => s.userId === id);
+  for (const s of sessions) {
+    forceDisconnect(s.id);
+  }
+  log.info({ userId: id, disconnectedSessions: sessions.length }, 'Disconnected active sessions for deleted user');
+
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
   log.info({ userId: id }, 'User deleted');
 }

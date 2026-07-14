@@ -9,7 +9,7 @@ import {
   getConnectionCount,
 } from '../core/sessions';
 import { recordBytes } from '../core/traffic';
-import { getRateLimitRules, TokenBucket } from '../core/rate-limiter';
+import { getRateLimitRules, TokenBucket, getOrCreateTokenBucket } from '../core/rate-limiter';
 import { getDb } from '../database/connection';
 
 const SOCKS_VERSION = 0x05;
@@ -82,7 +82,7 @@ export function createSocks5Server(port: number): net.Server {
         }
 
         if (limits.max_bandwidth !== null) {
-          bucket = new TokenBucket(limits.max_bandwidth);
+          bucket = getOrCreateTokenBucket(userId, limits.max_bandwidth);
         }
 
         clientSocket.write(Buffer.from([0x01, 0x00])); // auth success
@@ -101,7 +101,7 @@ export function createSocks5Server(port: number): net.Server {
       mode: 'sticky' | 'random',
       bucket: TokenBucket | null
     ): void {
-      if (data.length < 10 || data[0] !== SOCKS_VERSION) {
+      if (data.length < 5 || data[0] !== SOCKS_VERSION) {
         sendReply(clientSocket, REP_GENERAL_FAILURE);
         return;
       }
@@ -118,10 +118,18 @@ export function createSocks5Server(port: number): net.Server {
       let targetPort: number;
 
       if (atyp === ATYP_IPV4) {
+        if (data.length < 10) {
+          sendReply(clientSocket, REP_GENERAL_FAILURE);
+          return;
+        }
         targetHost = `${data[4]}.${data[5]}.${data[6]}.${data[7]}`;
         targetPort = data.readUInt16BE(8);
       } else if (atyp === ATYP_DOMAIN) {
         const domainLen = data[4];
+        if (data.length < 7 + domainLen) {
+          sendReply(clientSocket, REP_GENERAL_FAILURE);
+          return;
+        }
         targetHost = data.slice(5, 5 + domainLen).toString();
         targetPort = data.readUInt16BE(5 + domainLen);
       } else if (atyp === ATYP_IPV6) {

@@ -72,6 +72,7 @@ export function checkSubnetHealth(id: string): Promise<{ ok: boolean; message: s
       const testAddr = generateIPv6(parsed.prefix, parsed.prefixLength);
 
       const timeout = setTimeout(() => {
+        socket.destroy();
         resolve({ ok: false, message: 'Health check timed out' });
       }, 5000);
 

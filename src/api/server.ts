@@ -30,7 +30,9 @@ export async function createApiServer(): Promise<FastifyInstance> {
 
   // Auth hook for all other routes
   app.addHook('onRequest', async (request, reply) => {
-    if (request.url === '/health' || request.url === '/health/ready') return;
+    // Skip auth for health endpoints — use routerPath to avoid query-string mismatch
+    const path = request.routerPath || request.url?.split('?')[0];
+    if (path === '/health' || path === '/health/ready') return;
     await apiKeyAuth(request, reply);
   });
 

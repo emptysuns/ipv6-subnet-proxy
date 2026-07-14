@@ -21,37 +21,44 @@ export function allocateForUser(
   const parsed = parseCIDR(subnet.cidr);
 
   if (mode === 'sticky') {
-    const existing = db.prepare(
-      'SELECT ipv6_addr FROM sticky_bindings WHERE user_id = ? AND subnet_id = ?'
-    ).get(userId, subnetId) as { ipv6_addr: string } | undefined;
+    // Use IMMEDIATE transaction to prevent TOCTOU race:
+    // two concurrent allocations for the same user+subnet could both
+    // see no existing binding and try to INSERT simultaneously.
+    const insertSticky = db.transaction(() => {
+      const existing = db.prepare(
+        'SELECT ipv6_addr FROM sticky_bindings WHERE user_id = ? AND subnet_id = ?'
+      ).get(userId, subnetId) as { ipv6_addr: string } | undefined;
 
-    if (existing) {
-      log.debug({ userId, subnetId, ipv6Addr: existing.ipv6_addr }, 'Reusing sticky IPv6 address');
-      return existing.ipv6_addr;
-    }
-
-    const existingAddrs = db.prepare(
-      'SELECT ipv6_addr FROM sticky_bindings WHERE subnet_id = ?'
-    ).all(subnetId).map((r: any) => r.ipv6_addr);
-
-    let addr: string;
-    let attempts = 0;
-    do {
-      addr = generateIPv6(parsed.prefix, parsed.prefixLength);
-      attempts++;
-      if (attempts >= 100) {
-        throw new Error('Failed to find a unique IPv6 address after 100 attempts');
+      if (existing) {
+        log.debug({ userId, subnetId, ipv6Addr: existing.ipv6_addr }, 'Reusing sticky IPv6 address');
+        return existing.ipv6_addr;
       }
-    } while (existingAddrs.includes(addr));
 
-    const id = uuidv4();
-    const now = new Date().toISOString();
-    db.prepare(
-      'INSERT INTO sticky_bindings (id, user_id, subnet_id, ipv6_addr, bound_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(id, userId, subnetId, addr, now);
+      const existingAddrs = db.prepare(
+        'SELECT ipv6_addr FROM sticky_bindings WHERE subnet_id = ?'
+      ).all(subnetId).map((r: any) => r.ipv6_addr);
 
-    log.info({ userId, subnetId, ipv6Addr: addr }, 'Allocated new sticky IPv6 address');
-    return addr;
+      let addr: string;
+      let attempts = 0;
+      do {
+        addr = generateIPv6(parsed.prefix, parsed.prefixLength);
+        attempts++;
+        if (attempts >= 100) {
+          throw new Error('Failed to find a unique IPv6 address after 100 attempts');
+        }
+      } while (existingAddrs.includes(addr));
+
+      const id = uuidv4();
+      const now = new Date().toISOString();
+      db.prepare(
+        'INSERT INTO sticky_bindings (id, user_id, subnet_id, ipv6_addr, bound_at) VALUES (?, ?, ?, ?, ?)'
+      ).run(id, userId, subnetId, addr, now);
+
+      log.info({ userId, subnetId, ipv6Addr: addr }, 'Allocated new sticky IPv6 address');
+      return addr;
+    });
+
+    return insertSticky();
   }
 
   // Random mode

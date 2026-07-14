@@ -22,7 +22,8 @@
     "@types/bcrypt": "^5.0.2",
     "@types/uuid": "^10.0.0",
     "tsx": "^4.16.0",
-    "@types/node": "^20.14.0"
+    "@types/node": "^20.14.0",
+    "pino-pretty": "^11.2.0"
   },
   "engines": {
     "node": ">=20.0.0"

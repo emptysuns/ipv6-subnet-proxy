@@ -67,3 +67,23 @@ export function setRateLimitRules(userId: string, rules: RateLimitRules): RateLi
 }
 
 export { getConnectionCount as getCurrentConnections } from './sessions';
+
+// --- Per-user shared TokenBucket to enforce bandwidth across all connections ---
+
+const userBuckets = new Map<string, TokenBucket>();
+
+export function getOrCreateTokenBucket(userId: string, maxBandwidthBytesPerSec: number): TokenBucket {
+  const existing = userBuckets.get(userId);
+  if (existing) return existing;
+
+  const bucket = new TokenBucket(maxBandwidthBytesPerSec);
+  userBuckets.set(userId, bucket);
+  return bucket;
+}
+
+/**
+ * Remove a user's token bucket (e.g., when user is deleted or has no active connections).
+ */
+export function removeTokenBucket(userId: string): void {
+  userBuckets.delete(userId);
+}

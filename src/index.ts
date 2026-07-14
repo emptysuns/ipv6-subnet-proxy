@@ -1,6 +1,6 @@
 import { loadConfig } from './config';
 import { initLogger, getLogger } from './utils/logger';
-import { getDb } from './database/connection';
+import { getDb, closeDb } from './database/connection';
 import { runMigrations } from './database/migrations';
 import { createSocks5Server } from './socks5/server';
 import { createApiServer } from './api/server';
@@ -48,6 +48,7 @@ async function main(): Promise<void> {
     log.info({ signal }, 'Shutting down...');
     socks5Server.close();
     apiServer.close().then(() => {
+      closeDb();
       log.info('Shutdown complete');
       process.exit(0);
     });

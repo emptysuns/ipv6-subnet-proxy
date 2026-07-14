@@ -38,7 +38,9 @@ export function registerUserRoutes(app: FastifyInstance): void {
     const input = request.body as any;
     try {
       const user = updateUser(id, { password: input.password, mode: input.mode, status: input.status });
-      logAction('user.updated', input, id);
+      // Strip password from audit log to prevent credential leak
+      const { password, ...safeInput } = input;
+      logAction('user.updated', safeInput, id);
       return user;
     } catch (err: any) {
       if (err.message?.includes('not found')) {
