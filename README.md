@@ -207,7 +207,8 @@ The proxy only supports TCP CONNECT. BIND and UDP ASSOCIATE requests are rejecte
 
 Users operate in one of two IPv6 allocation modes:
 
-- **sticky** (default): Each user+subnet pair receives a fixed IPv6 address. The address persists across reconnections until explicitly refreshed via `POST /users/:id/refresh`.
+- **random** (default): Each connection receives a new random IPv6 address from the assigned subnet.
+- **sticky**: Each user+subnet pair receives a fixed IPv6 address. The address persists across reconnections until explicitly refreshed via `POST /users/:id/refresh`.
 - **random**: A new random IPv6 address from the subnet is generated for every connection.
 
 ### IPv6 Kernel Requirement
@@ -251,7 +252,7 @@ All API endpoints are prefixed with `/api/v1`. Authentication is via the `X-API-
 {
   "username": "alice",
   "password": "secret123",
-  "mode": "sticky"
+  "mode": "random"
 }
 ```
 

@@ -207,8 +207,8 @@ curl -X POST http://localhost:3000/api/v1/users/<USER_ID>/bindings \
 
 用户可在两种 IPv6 分配模式下运行：
 
-- **sticky**（默认）：每个用户+子网对分配一个固定 IPv6 地址。该地址在重连后保持不变，直到通过 `POST /users/:id/refresh` 显式刷新。
-- **random**：每次连接从子网中随机生成新的 IPv6 地址。
+- **random**（默认）：每次连接从子网中随机生成新的 IPv6 地址。
+- **sticky**：每个用户+子网对分配一个固定 IPv6 地址。该地址在重连后保持不变，直到通过 `POST /users/:id/refresh` 显式刷新。
 
 ### IPv6 内核要求
 
@@ -251,7 +251,7 @@ sysctl -w net.ipv6.ip_nonlocal_bind=1
 {
   "username": "alice",
   "password": "secret123",
-  "mode": "sticky"
+  "mode": "random"
 }
 ```
 

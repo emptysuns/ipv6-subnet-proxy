@@ -45,7 +45,7 @@ export function createUser(input: CreateUserInput): User {
   const id = uuidv4();
   const now = new Date().toISOString();
   const hashedPassword = bcrypt.hashSync(input.password, config.bcryptRounds);
-  const mode = input.mode || 'sticky';
+  const mode = input.mode || 'random';
 
   db.prepare(`
     INSERT INTO users (id, username, password, mode, status, created_at, updated_at)

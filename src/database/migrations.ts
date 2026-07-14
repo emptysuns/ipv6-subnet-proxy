@@ -9,7 +9,7 @@ export function runMigrations(db: Database.Database): void {
       id         TEXT PRIMARY KEY,
       username   TEXT NOT NULL UNIQUE,
       password   TEXT NOT NULL,
-      mode       TEXT NOT NULL DEFAULT 'sticky',
+      mode       TEXT NOT NULL DEFAULT 'random',
       status     TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
