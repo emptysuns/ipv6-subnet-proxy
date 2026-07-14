@@ -1,0 +1,20 @@
+services:
+  ipv6-proxy:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "1080:1080"
+      - "3000:3000"
+    environment:
+      - API_KEY=changeme
+      - DEFAULT_SUBNET=
+      - LOG_LEVEL=info
+    volumes:
+      - ./data:/data
+    cap_add:
+      - NET_ADMIN
+    sysctls:
+      - net.ipv6.ip_nonlocal_bind=1
+    restart: unless-stopped
+    network_mode: host
