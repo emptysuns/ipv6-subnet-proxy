@@ -1,5 +1,7 @@
 # IPv6 子网代理
 
+[English](README.md) | [中文](README_zh.md)
+
 一个基于 Node.js TypeScript 的 SOCKS5 代理服务，能够将出站连接分布到托管 `/64` 子网中的不同 IPv6 地址。包含 REST 管理 API、SQLite 持久化存储、用户级速率限制、流量统计和审计日志功能。
 
 ---

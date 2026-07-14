@@ -1,5 +1,7 @@
 # IPv6 Subnet Proxy
 
+[English](README.md) | [中文](README_zh.md)
+
 A Node.js TypeScript SOCKS5 proxy that distributes outbound connections across different IPv6 addresses from managed `/64` subnets. Includes a REST management API, SQLite-backed persistence, per-user rate limiting, traffic accounting, and audit logging.
 
 ---
