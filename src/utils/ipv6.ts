@@ -91,9 +91,16 @@ export function isReservedIPv6(addr: string): boolean {
  * Auto-detect IPv6 subnets from the host's network interfaces.
  *
  * Reads all network interfaces via os.networkInterfaces(), extracts
- * IPv6 addresses with their prefix lengths (from the `cidr` field),
- * computes the network address for each, and returns unique subnet
- * CIDRs suitable for proxy address allocation.
+ * IPv6 addresses with their prefix lengths, computes the network address
+ * for each, and returns unique subnet CIDRs suitable for proxy address
+ * allocation.
+ *
+ * Two strategies (in order):
+ * 1. Use the `cidr` field directly (available on Node.js >= 18).
+ * 2. Fall back to computing the prefix length from the `netmask` field
+ *    when `cidr` is null/missing (Node.js docs note `cidr` can be null
+ *    when the netmask is invalid; some kernels report IPv6 addresses
+ *    differently).
  *
  * Skip candidates: loopback, link-local (fe80::/10), unspecified,
  * multicast (ff00::/8), and addresses with a /128 prefix (single-host).
@@ -106,24 +113,35 @@ export function detectIPv6Subnets(): string[] {
     if (!addrs) continue;
 
     for (const addr of addrs) {
-      // Only IPv6, only external (non-internal), only with a routable prefix
+      // Only IPv6, only external (non-internal)
       if (addr.family !== 'IPv6' || addr.internal) continue;
 
-      const cidr = (addr as any).cidr as string | undefined;
-      if (!cidr) continue;
+      let ipStr: string;
+      let prefixLen: number;
 
-      const slashIdx = cidr.indexOf('/');
-      if (slashIdx === -1) continue;
+      // Strategy 1: use the cidr field
+      const cidr = (addr as any).cidr as string | undefined | null;
+      if (cidr) {
+        const slashIdx = cidr.indexOf('/');
+        if (slashIdx === -1) continue;
+        prefixLen = parseInt(cidr.slice(slashIdx + 1), 10);
+        ipStr = cidr.slice(0, slashIdx);
+      } else {
+        // Strategy 2: construct from address + netmask
+        const netmask = (addr as any).netmask as string | undefined;
+        if (!netmask) continue;
+        prefixLen = prefixLengthFromNetmask(netmask);
+        if (prefixLen < 1) continue;
+        ipStr = (addr as any).address as string;
+        if (!ipStr) continue;
+      }
 
-      const prefixLen = parseInt(cidr.slice(slashIdx + 1), 10);
       // Skip /128 (single-host, not a usable subnet) and invalid lengths
       if (isNaN(prefixLen) || prefixLen < 1 || prefixLen > 127) continue;
 
-      const ipStr = cidr.slice(0, slashIdx);
-
       // Skip reserved address ranges
       if (isReservedIPv6(ipStr)) continue;
-      if (ipStr.startsWith('fd') || ipStr.startsWith('fc')) continue; // ULA (optional skip)
+      if (ipStr.startsWith('fd') || ipStr.startsWith('fc')) continue; // ULA
 
       // Compute the network / prefix address
       try {
@@ -137,6 +155,43 @@ export function detectIPv6Subnets(): string[] {
   }
 
   return Array.from(subnets);
+}
+
+/**
+ * Compute the prefix length from an IPv6 netmask string.
+ * E.g., "ffff:ffff:ffff:ffff:0000:0000:0000:0000" → 64
+ */
+function prefixLengthFromNetmask(netmask: string): number {
+  // Expand :: notation in the netmask
+  let hextets: string[];
+  if (netmask.includes('::')) {
+    const sides = netmask.split('::');
+    const left = sides[0] ? sides[0].split(':').filter(s => s !== '') : [];
+    const right = sides[1] ? sides[1].split(':').filter(s => s !== '') : [];
+    const missing = 8 - left.length - right.length;
+    hextets = [...left, ...Array(missing).fill('0'), ...right];
+  } else {
+    hextets = netmask.split(':');
+  }
+
+  if (hextets.length !== 8) return 0;
+
+  let bits = 0;
+  for (const h of hextets) {
+    const val = parseInt(h || '0', 16);
+    if (val === 0xFFFF) {
+      bits += 16;
+    } else {
+      // Count leading 1 bits in this hextet
+      let mask = 0x8000;
+      while (mask && (val & mask)) {
+        bits++;
+        mask >>= 1;
+      }
+      break;
+    }
+  }
+  return bits;
 }
 
 /**
