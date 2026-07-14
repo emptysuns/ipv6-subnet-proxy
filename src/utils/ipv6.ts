@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import os from 'os';
+import { execFileSync } from 'child_process';
 
 export interface ParsedCIDR {
   prefix: string;
@@ -228,4 +229,112 @@ function networkAddressFromCIDR(address: string, prefixLen: number): string {
   }
 
   return hextets.join(':').toLowerCase();
+}
+
+// --- Interface address binding for LXC / non-Docker deployments ---
+
+let _outboundInterface: string | null = null;
+const _registeredAddrs = new Set<string>();
+
+/**
+ * Detect or return the cached outbound network interface (the one
+ * with the default IPv6 route). Respects IPV6_INTERFACE env var.
+ */
+export function getOutboundInterface(): string {
+  if (_outboundInterface) return _outboundInterface;
+
+  // Allow explicit override via env
+  const envIface = process.env.IPV6_INTERFACE;
+  if (envIface) {
+    _outboundInterface = envIface;
+    return envIface;
+  }
+
+  // Auto-detect: find the interface that has the default IPv6 route
+  try {
+    const out = execFileSync('ip', ['-6', 'route', 'show', 'default'], {
+      encoding: 'utf-8', timeout: 3000,
+    });
+    // Output: "default via FE80::1 dev eth0 metric 1024 pref medium"
+    const m = out.match(/dev (\S+)/);
+    if (m) {
+      _outboundInterface = m[1];
+      return _outboundInterface;
+    }
+  } catch {}
+
+  // Fallback: use the first non-loopback interface with a global IPv6 address
+  const ifaces = os.networkInterfaces();
+  for (const [name, addrs] of Object.entries(ifaces)) {
+    if (name === 'lo' || !addrs) continue;
+    for (const a of addrs) {
+      if (a.family === 'IPv6' && !a.internal) {
+        _outboundInterface = name;
+        return name;
+      }
+    }
+  }
+
+  return 'eth0'; // last-resort fallback
+}
+
+/**
+ * Register an IPv6 address on the outbound interface so the upstream
+ * router responds to NDP (Neighbor Discovery) queries for this address.
+ *
+ * In LXC containers and some VPS configurations, only addresses
+ * explicitly added to the network interface receive return traffic
+ * because the upstream switch/router uses NDP to map IPv6 → MAC.
+ * Adding the address to the interface makes the kernel answer NDP
+ * solicitations, so return packets reach the container.
+ */
+export function registerIPv6Address(addr: string): void {
+  if (_registeredAddrs.has(addr)) return;
+
+  const iface = getOutboundInterface();
+  try {
+    execFileSync('ip', ['-6', 'addr', 'add', `${addr}/128`, 'dev', iface], {
+      timeout: 3000,
+    });
+    _registeredAddrs.add(addr);
+  } catch {
+    // Address may already exist on the interface (e.g., from a previous
+    // run) — still mark as registered so we track it for cleanup.
+    _registeredAddrs.add(addr);
+  }
+}
+
+/**
+ * Remove a previously registered IPv6 address from the outbound interface.
+ * Safe to call on addresses that were never registered.
+ */
+export function unregisterIPv6Address(addr: string): void {
+  if (!_registeredAddrs.has(addr)) return;
+
+  const iface = getOutboundInterface();
+  try {
+    execFileSync('ip', ['-6', 'addr', 'del', `${addr}/128`, 'dev', iface], {
+      timeout: 3000,
+    });
+  } catch {
+    // best-effort cleanup
+  }
+  _registeredAddrs.delete(addr);
+}
+
+/**
+ * Remove all registered addresses (called on graceful shutdown).
+ */
+export function unregisterAllIPv6Addresses(): void {
+  for (const addr of _registeredAddrs) {
+    const iface = getOutboundInterface();
+    try {
+      execFileSync('ip', ['-6', 'addr', 'del', `${addr}/128`, 'dev', iface], {
+        timeout: 3000,
+      });
+    } catch {
+      // best-effort
+    }
+  }
+  _registeredAddrs.clear();
 }

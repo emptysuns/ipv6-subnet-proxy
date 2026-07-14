@@ -5,7 +5,7 @@ import { runMigrations } from './database/migrations';
 import { createSocks5Server } from './socks5/server';
 import { createApiServer } from './api/server';
 import { addSubnet } from './core/subnets';
-import { detectIPv6Subnets } from './utils/ipv6';
+import { detectIPv6Subnets, unregisterAllIPv6Addresses } from './utils/ipv6';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -77,6 +77,7 @@ async function main(): Promise<void> {
     log.info({ signal }, 'Shutting down...');
     socks5Server.close();
     apiServer.close().then(() => {
+      unregisterAllIPv6Addresses();
       closeDb();
       log.info('Shutdown complete');
       process.exit(0);

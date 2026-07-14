@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../database/connection';
-import { parseCIDR, generateIPv6 } from '../utils/ipv6';
+import { parseCIDR, generateIPv6, registerIPv6Address, unregisterIPv6Address } from '../utils/ipv6';
 import { getLogger } from '../utils/logger';
 
 export function allocateForUser(
@@ -55,6 +55,8 @@ export function allocateForUser(
       ).run(id, userId, subnetId, addr, now);
 
       log.info({ userId, subnetId, ipv6Addr: addr }, 'Allocated new sticky IPv6 address');
+      // Register on host interface so upstream NDP can route return traffic
+      registerIPv6Address(addr);
       return addr;
     });
 
@@ -63,6 +65,7 @@ export function allocateForUser(
 
   // Random mode
   const addr = generateIPv6(parsed.prefix, parsed.prefixLength);
+  registerIPv6Address(addr);
   log.debug({ userId, subnetId, ipv6Addr: addr }, 'Allocated random IPv6 address');
   return addr;
 }
@@ -70,6 +73,15 @@ export function allocateForUser(
 export function refreshStickyBinding(userId: string, subnetId: string): void {
   const db = getDb();
   const log = getLogger();
+
+  // Unregister old address from interface before deleting
+  const existing = db.prepare(
+    'SELECT ipv6_addr FROM sticky_bindings WHERE user_id = ? AND subnet_id = ?'
+  ).get(userId, subnetId) as { ipv6_addr: string } | undefined;
+  if (existing) {
+    unregisterIPv6Address(existing.ipv6_addr);
+  }
+
   const result = db.prepare(
     'DELETE FROM sticky_bindings WHERE user_id = ? AND subnet_id = ?'
   ).run(userId, subnetId);
@@ -85,5 +97,12 @@ export function getCurrentStickyAddress(userId: string): { subnetId: string; ipv
 
 export function removeAllStickyBindings(userId: string): void {
   const db = getDb();
+  // Unregister all addresses for this user before deleting
+  const addrs = db.prepare(
+    'SELECT ipv6_addr FROM sticky_bindings WHERE user_id = ?'
+  ).all(userId) as { ipv6_addr: string }[];
+  for (const a of addrs) {
+    unregisterIPv6Address(a.ipv6_addr);
+  }
   db.prepare('DELETE FROM sticky_bindings WHERE user_id = ?').run(userId);
 }
