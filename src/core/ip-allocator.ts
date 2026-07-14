@@ -1,0 +1,82 @@
+import { v4 as uuidv4 } from 'uuid';
+import { getDb } from '../database/connection';
+import { parseCIDR, generateIPv6 } from '../utils/ipv6';
+import { getLogger } from '../utils/logger';
+
+export function allocateForUser(
+  userId: string,
+  subnetId: string,
+  mode: 'sticky' | 'random'
+): string {
+  const db = getDb();
+  const log = getLogger();
+
+  const subnet = db.prepare('SELECT cidr FROM subnets WHERE id = ? AND status = ?')
+    .get(subnetId, 'active') as { cidr: string } | undefined;
+
+  if (!subnet) {
+    throw new Error(`Active subnet ${subnetId} not found`);
+  }
+
+  const parsed = parseCIDR(subnet.cidr);
+
+  if (mode === 'sticky') {
+    const existing = db.prepare(
+      'SELECT ipv6_addr FROM sticky_bindings WHERE user_id = ? AND subnet_id = ?'
+    ).get(userId, subnetId) as { ipv6_addr: string } | undefined;
+
+    if (existing) {
+      log.debug({ userId, subnetId, ipv6Addr: existing.ipv6_addr }, 'Reusing sticky IPv6 address');
+      return existing.ipv6_addr;
+    }
+
+    const existingAddrs = db.prepare(
+      'SELECT ipv6_addr FROM sticky_bindings WHERE subnet_id = ?'
+    ).all(subnetId).map((r: any) => r.ipv6_addr);
+
+    let addr: string;
+    let attempts = 0;
+    do {
+      addr = generateIPv6(parsed.prefix, parsed.prefixLength);
+      attempts++;
+      if (attempts >= 100) {
+        throw new Error('Failed to find a unique IPv6 address after 100 attempts');
+      }
+    } while (existingAddrs.includes(addr));
+
+    const id = uuidv4();
+    const now = new Date().toISOString();
+    db.prepare(
+      'INSERT INTO sticky_bindings (id, user_id, subnet_id, ipv6_addr, bound_at) VALUES (?, ?, ?, ?, ?)'
+    ).run(id, userId, subnetId, addr, now);
+
+    log.info({ userId, subnetId, ipv6Addr: addr }, 'Allocated new sticky IPv6 address');
+    return addr;
+  }
+
+  // Random mode
+  const addr = generateIPv6(parsed.prefix, parsed.prefixLength);
+  log.debug({ userId, subnetId, ipv6Addr: addr }, 'Allocated random IPv6 address');
+  return addr;
+}
+
+export function refreshStickyBinding(userId: string, subnetId: string): void {
+  const db = getDb();
+  const log = getLogger();
+  const result = db.prepare(
+    'DELETE FROM sticky_bindings WHERE user_id = ? AND subnet_id = ?'
+  ).run(userId, subnetId);
+  log.info({ userId, subnetId, deleted: result.changes > 0 }, 'Sticky binding refreshed');
+}
+
+export function getCurrentStickyAddress(userId: string): { subnetId: string; ipv6Addr: string }[] {
+  const db = getDb();
+  return (db.prepare(
+    'SELECT subnet_id, ipv6_addr FROM sticky_bindings WHERE user_id = ?'
+  ).all(userId) as any[]).map(r => ({ subnetId: r.subnet_id, ipv6Addr: r.ipv6_addr }));
+}
+
+export function removeAllStickyBindings(userId: string): void {
+  const db = getDb();
+  db.prepare('DELETE FROM sticky_bindings WHERE user_id = ?').run(userId);
+}
