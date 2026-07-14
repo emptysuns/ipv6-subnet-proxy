@@ -5,6 +5,7 @@ import { runMigrations } from './database/migrations';
 import { createSocks5Server } from './socks5/server';
 import { createApiServer } from './api/server';
 import { addSubnet } from './core/subnets';
+import { detectIPv6Subnets } from './utils/ipv6';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -18,11 +19,28 @@ async function main(): Promise<void> {
   runMigrations(db);
   log.info({ dbPath: config.dbPath }, 'Database initialized');
 
-  // Default subnet
+  // Auto-detect IPv6 subnets from host interfaces
+  const detectedSubnets = detectIPv6Subnets();
+  if (detectedSubnets.length > 0) {
+    for (const cidr of detectedSubnets) {
+      try {
+        addSubnet(cidr);
+        log.info({ cidr }, 'Auto-registered detected IPv6 subnet');
+      } catch (err: any) {
+        if (err.message?.includes('UNIQUE constraint')) {
+          log.info({ cidr }, 'Detected subnet already registered');
+        } else {
+          log.warn({ cidr, err: err.message }, 'Failed to register detected subnet');
+        }
+      }
+    }
+  }
+
+  // Also register default subnet from env if provided (supplementary)
   if (config.defaultSubnet) {
     try {
       addSubnet(config.defaultSubnet, config.defaultSubnetGateway || undefined);
-      log.info({ cidr: config.defaultSubnet }, 'Default subnet registered');
+      log.info({ cidr: config.defaultSubnet }, 'Default subnet from env registered');
     } catch (err: any) {
       if (err.message?.includes('UNIQUE constraint')) {
         log.info({ cidr: config.defaultSubnet }, 'Default subnet already registered');
@@ -30,6 +48,11 @@ async function main(): Promise<void> {
         log.warn({ err: err.message }, 'Failed to register default subnet');
       }
     }
+  }
+
+  if (detectedSubnets.length === 0 && !config.defaultSubnet) {
+    log.warn('No IPv6 subnets detected and no DEFAULT_SUBNET configured. ' +
+      'Users will not be able to make proxied connections until a subnet is added.');
   }
 
   // SOCKS5

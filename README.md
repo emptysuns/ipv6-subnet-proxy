@@ -33,8 +33,10 @@ A Node.js TypeScript SOCKS5 proxy that distributes outbound connections across d
 ## Features
 
 - **SOCKS5 with Password Auth** — Full RFC 1928 (SOCKS5) and RFC 1929 (Username/Password) support. Only CONNECT command; BIND and UDP ASSOCIATE are rejected.
-- **Per-User IPv6 Allocation** — Two modes: `sticky` (same IPv6 address is reused for each user+subnet pair) and `random` (new address per connection).
-- **Multi-Subnet Management** — Manage multiple `/64` (or any prefix length) subnets, bind any subset to each user.
+- **Auto-Detect Subnets** — IPv6 subnets are automatically detected from host network interfaces on startup; no manual configuration needed
+- **Per-User IPv6 Allocation** — Two modes: `sticky` (same IPv6 address is reused for each user+subnet pair) and `random` (new address per connection, default)
+- **Auto-Binding** — Users are automatically bound to all active subnets on creation
+- **Multi-Subnet Management** — Manage multiple `/64` (or any prefix length) subnets, bind any subset to each user
 - **REST Management API** — Full CRUD for users, subnets, and bindings; query active sessions, traffic stats, audit logs; manage rate limits.
 - **Rate Limiting** — Per-user connection count limit and token-bucket bandwidth throttling.
 - **Traffic Accounting** — Per-user, per-day byte counters (bytes in / out).
@@ -133,14 +135,19 @@ cd ipv6-subnet-proxy
 npm install
 npm run build
 
-# Set required environment variable
+# Set required API key (subnets are auto-detected from host interfaces)
 export API_KEY=your-secret-api-key
 
-# Optional: configure a default subnet
+# Optional: manually specify a subnet if auto-detection fails
 export DEFAULT_SUBNET=2001:db8:1::/64
 
 # Start
 npm start
+```
+
+On startup, the program auto-detects IPv6 subnets from the host's network interfaces. You'll see log lines like:
+```
+info: Auto-registered detected IPv6 subnet { cidr: "2001:db8:1::/64" }
 ```
 
 ### Verify
@@ -149,11 +156,14 @@ npm start
 # Health check
 curl http://localhost:3000/health
 
-# Create a user
+# Create a user — all active subnets are automatically bound
 curl -X POST http://localhost:3000/api/v1/users \
   -H "X-API-Key: your-secret-api-key" \
   -H "Content-Type: application/json" \
   -d '{"username": "alice", "password": "secret123"}'
+```
+
+Users are automatically bound to all registered subnets on creation — no manual binding needed. You can still manage subnets and bindings via the API for advanced use cases.
 
 # Add a subnet
 curl -X POST http://localhost:3000/api/v1/subnets \

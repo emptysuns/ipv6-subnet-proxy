@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import os from 'os';
 
 export interface ParsedCIDR {
   prefix: string;
@@ -84,4 +85,92 @@ export function isReservedIPv6(addr: string): boolean {
       lower.startsWith('fea') || lower.startsWith('feb')) return true;
   if (lower.startsWith('ff')) return true;
   return false;
+}
+
+/**
+ * Auto-detect IPv6 subnets from the host's network interfaces.
+ *
+ * Reads all network interfaces via os.networkInterfaces(), extracts
+ * IPv6 addresses with their prefix lengths (from the `cidr` field),
+ * computes the network address for each, and returns unique subnet
+ * CIDRs suitable for proxy address allocation.
+ *
+ * Skip candidates: loopback, link-local (fe80::/10), unspecified,
+ * multicast (ff00::/8), and addresses with a /128 prefix (single-host).
+ */
+export function detectIPv6Subnets(): string[] {
+  const ifaces = os.networkInterfaces();
+  const subnets = new Set<string>();
+
+  for (const [name, addrs] of Object.entries(ifaces)) {
+    if (!addrs) continue;
+
+    for (const addr of addrs) {
+      // Only IPv6, only external (non-internal), only with a routable prefix
+      if (addr.family !== 'IPv6' || addr.internal) continue;
+
+      const cidr = (addr as any).cidr as string | undefined;
+      if (!cidr) continue;
+
+      const slashIdx = cidr.indexOf('/');
+      if (slashIdx === -1) continue;
+
+      const prefixLen = parseInt(cidr.slice(slashIdx + 1), 10);
+      // Skip /128 (single-host, not a usable subnet) and invalid lengths
+      if (isNaN(prefixLen) || prefixLen < 1 || prefixLen > 127) continue;
+
+      const ipStr = cidr.slice(0, slashIdx);
+
+      // Skip reserved address ranges
+      if (isReservedIPv6(ipStr)) continue;
+      if (ipStr.startsWith('fd') || ipStr.startsWith('fc')) continue; // ULA (optional skip)
+
+      // Compute the network / prefix address
+      try {
+        const network = networkAddressFromCIDR(ipStr, prefixLen);
+        const subnetCidr = `${network}/${prefixLen}`;
+        subnets.add(subnetCidr);
+      } catch {
+        // silently skip malformed addresses
+      }
+    }
+  }
+
+  return Array.from(subnets);
+}
+
+/**
+ * Given an IPv6 address and a prefix length, compute the network address
+ * (all host bits zeroed). E.g., "2001:db8:1::1" / 64 => "2001:db8:1::"
+ */
+function networkAddressFromCIDR(address: string, prefixLen: number): string {
+  const parts = address.split(':');
+  // Expand :: notation
+  let hextets: string[];
+  if (address.includes('::')) {
+    const sides = address.split('::');
+    const left = sides[0] ? sides[0].split(':').filter(s => s !== '') : [];
+    const right = sides[1] ? sides[1].split(':').filter(s => s !== '') : [];
+    const missing = 8 - left.length - right.length;
+    hextets = [...left, ...Array(missing).fill('0'), ...right];
+  } else {
+    hextets = address.split(':');
+  }
+
+  // Zero out bits beyond the prefix
+  for (let i = 0; i < 8; i++) {
+    const hextetVal = parseInt(hextets[i] || '0', 16);
+    const bitsBefore = i * 16;
+    if (bitsBefore >= prefixLen) {
+      hextets[i] = '0';
+    } else if (bitsBefore + 16 > prefixLen) {
+      const keepBits = prefixLen - bitsBefore;
+      const mask = 0xFFFF << (16 - keepBits);
+      hextets[i] = (hextetVal & mask).toString(16).padStart(4, '0');
+    } else {
+      hextets[i] = hextetVal.toString(16).padStart(4, '0');
+    }
+  }
+
+  return hextets.join(':').toLowerCase();
 }

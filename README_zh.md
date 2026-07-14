@@ -33,8 +33,10 @@
 ## 功能特性
 
 - **SOCKS5 密码认证** — 完整实现 RFC 1928（SOCKS5）和 RFC 1929（用户名/密码）协议。支持 CONNECT 命令；BIND 和 UDP ASSOCIATE 请求将被拒绝。
-- **用户级 IPv6 分配** — 两种分配模式：`sticky`（同一用户+子网对复用固定 IPv6 地址）和 `random`（每次连接随机分配新地址）。
-- **多子网管理** — 管理多个 `/64`（或任意前缀长度）子网，可为每个用户绑定任意子网组合。
+- **自动检测子网** — 启动时从宿主机网络接口自动检测 IPv6 子网，无需手动配置
+- **用户级 IPv6 分配** — 两种分配模式：`sticky`（同一用户+子网对复用固定 IPv6 地址）和 `random`（每次连接随机分配新地址，默认）
+- **自动绑定** — 创建用户时自动绑定所有活跃子网
+- **多子网管理** — 管理多个 `/64`（或任意前缀长度）子网，可为每个用户绑定任意子网组合
 - **REST 管理 API** — 完整的用户、子网和绑定关系 CRUD 操作；查询活跃会话、流量统计、审计日志；管理速率限制。
 - **速率限制** — 用户级并发连接数限制和令牌桶带宽限流。
 - **流量统计** — 按用户、按日统计字节数（入站/出站）。
@@ -133,14 +135,19 @@ cd ipv6-subnet-proxy
 npm install
 npm run build
 
-# 设置必需的环境变量
+# 设置必需的 API Key（子网会从宿主机网卡自动检测）
 export API_KEY=your-secret-api-key
 
-# 可选：配置默认子网
+# 可选：手动指定子网（如果没有检测到，或想补充额外的）
 export DEFAULT_SUBNET=2001:db8:1::/64
 
 # 启动
 npm start
+```
+
+启动后，程序会自动从宿主机网络接口检测 IPv6 子网并注册。日志中可以看到类似输出：
+```
+info: Auto-registered detected IPv6 subnet { cidr: "2001:db8:1::/64" }
 ```
 
 ### 验证
@@ -149,26 +156,14 @@ npm start
 # 健康检查
 curl http://localhost:3000/health
 
-# 创建用户
+# 创建用户（自动绑定所有已注册子网，无需手动绑定）
 curl -X POST http://localhost:3000/api/v1/users \
   -H "X-API-Key: your-secret-api-key" \
   -H "Content-Type: application/json" \
   -d '{"username": "alice", "password": "secret123"}'
-
-# 添加子网
-curl -X POST http://localhost:3000/api/v1/subnets \
-  -H "X-API-Key: your-secret-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{"cidr": "2001:db8:1::/64"}'
-
-# 绑定用户到子网
-curl -X POST http://localhost:3000/api/v1/users/<USER_ID>/bindings \
-  -H "X-API-Key: your-secret-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{"subnet_id": "<SUBNET_ID>"}'
 ```
 
-现在可以使用 SOCKS5 代理 `localhost:1080`，用户名为 `alice`，密码为 `secret123`。
+用户创建后即自动绑定所有活跃子网，可直接使用代理。也可以通过 API 手动管理子网和绑定关系。
 
 ---
 

@@ -52,7 +52,17 @@ export function createUser(input: CreateUserInput): User {
     VALUES (?, ?, ?, ?, 'active', ?, ?)
   `).run(id, input.username, hashedPassword, mode, now, now);
 
-  log.info({ userId: id, username: input.username }, 'User created');
+  // Auto-bind all active subnets to the new user
+  const subnets = db.prepare(
+    "SELECT id FROM subnets WHERE status = 'active'"
+  ).all() as { id: string }[];
+  for (const subnet of subnets) {
+    db.prepare(
+      'INSERT OR IGNORE INTO user_subnet_bindings (id, user_id, subnet_id) VALUES (?, ?, ?)'
+    ).run(uuidv4(), id, subnet.id);
+  }
+
+  log.info({ userId: id, username: input.username, autoBoundSubnets: subnets.length }, 'User created');
   return { id, username: input.username, mode, status: 'active', created_at: now, updated_at: now };
 }
 
