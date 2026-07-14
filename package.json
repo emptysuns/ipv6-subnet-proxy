@@ -1,0 +1,30 @@
+{
+  "name": "ipv6-subnet-proxy",
+  "version": "1.0.0",
+  "description": "SOCKS5 proxy that distributes connections across an IPv6 /64 subnet",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "bcrypt": "^5.1.1",
+    "uuid": "^10.0.0",
+    "fastify": "^4.28.0",
+    "pino": "^9.3.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/bcrypt": "^5.0.2",
+    "@types/uuid": "^10.0.0",
+    "tsx": "^4.16.0",
+    "@types/node": "^20.14.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
