@@ -29,16 +29,6 @@ export function setTargetSocket(sessionId: string, targetSocket: net.Socket): vo
 }
 
 export function closeSession(id: string): void {
-  const session = activeSessions.get(id);
-  if (session) {
-    // Destroy sockets to prevent resource leaks
-    if (session.clientSocket && !session.clientSocket.destroyed) {
-      session.clientSocket.destroy();
-    }
-    if (session.targetSocket && !session.targetSocket.destroyed) {
-      session.targetSocket.destroy();
-    }
-  }
   activeSessions.delete(id);
 }
 

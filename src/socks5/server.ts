@@ -181,6 +181,14 @@ export function createSocks5Server(port: number): net.Server {
         family: 6,
       });
 
+      // Hard timeout: if the connect or first data doesn't happen within
+      // 30 seconds, give up (prevents hanging when target is unreachable).
+      targetSocket.setTimeout(30000, () => {
+        if (!targetSocket.destroyed) {
+          targetSocket.destroy(new Error('Connection timed out after 30s'));
+        }
+      });
+
       setTargetSocket(session.id, targetSocket);
 
       targetSocket.on('connect', () => {
@@ -193,6 +201,11 @@ export function createSocks5Server(port: number): net.Server {
         log.warn({ err: err.message, targetHost }, 'Failed to connect to target');
         const replyCode = mapErrorToReplyCode(err);
         sendReply(clientSocket, replyCode);
+        // Gracefully close: end() flushes the reply then sends FIN,
+        // unlike destroy() which drops pending writes.
+        if (!clientSocket.destroyed) {
+          clientSocket.end();
+        }
         closeSession(session.id);
       });
     }
