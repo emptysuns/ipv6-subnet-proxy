@@ -234,7 +234,7 @@ function networkAddressFromCIDR(address: string, prefixLen: number): string {
 // --- Interface address binding for LXC / non-Docker deployments ---
 
 let _outboundInterface: string | null = null;
-const _registeredAddrs = new Set<string>();
+const _registeredAddrs = new Map<string, number>();
 
 /**
  * Detect or return the cached outbound network interface (the one
@@ -289,27 +289,34 @@ export function getOutboundInterface(): string {
  * solicitations, so return packets reach the container.
  */
 export function registerIPv6Address(addr: string): void {
-  if (_registeredAddrs.has(addr)) return;
-
-  const iface = getOutboundInterface();
-  try {
-    execFileSync('ip', ['-6', 'addr', 'add', `${addr}/128`, 'dev', iface], {
-      timeout: 3000,
-    });
-    _registeredAddrs.add(addr);
-  } catch {
-    // Address may already exist on the interface (e.g., from a previous
-    // run) — still mark as registered so we track it for cleanup.
-    _registeredAddrs.add(addr);
+  const refs = _registeredAddrs.get(addr) ?? 0;
+  if (refs === 0) {
+    const iface = getOutboundInterface();
+    try {
+      execFileSync('ip', ['-6', 'addr', 'add', `${addr}/128`, 'dev', iface], {
+        timeout: 3000,
+      });
+    } catch {
+      // Address may already exist on the interface (e.g., from a previous
+      // run) — still track it for refcounted cleanup.
+    }
   }
+  _registeredAddrs.set(addr, refs + 1);
 }
 
 /**
- * Remove a previously registered IPv6 address from the outbound interface.
+ * Drop one reference to a registered IPv6 address. When the last session
+ * releases it, remove the address from the outbound interface.
  * Safe to call on addresses that were never registered.
  */
 export function unregisterIPv6Address(addr: string): void {
-  if (!_registeredAddrs.has(addr)) return;
+  const refs = _registeredAddrs.get(addr);
+  if (refs === undefined) return;
+
+  if (refs > 1) {
+    _registeredAddrs.set(addr, refs - 1);
+    return;
+  }
 
   const iface = getOutboundInterface();
   try {
@@ -323,11 +330,26 @@ export function unregisterIPv6Address(addr: string): void {
 }
 
 /**
+ * Force-remove an address regardless of refcount (sticky refresh / user delete).
+ */
+export function forceUnregisterIPv6Address(addr: string): void {
+  const iface = getOutboundInterface();
+  try {
+    execFileSync('ip', ['-6', 'addr', 'del', `${addr}/128`, 'dev', iface], {
+      timeout: 3000,
+    });
+  } catch {
+    // best-effort — may not be on interface in this process
+  }
+  _registeredAddrs.delete(addr);
+}
+
+/**
  * Remove all registered addresses (called on graceful shutdown).
  */
 export function unregisterAllIPv6Addresses(): void {
-  for (const addr of _registeredAddrs) {
-    const iface = getOutboundInterface();
+  const iface = getOutboundInterface();
+  for (const addr of _registeredAddrs.keys()) {
     try {
       execFileSync('ip', ['-6', 'addr', 'del', `${addr}/128`, 'dev', iface], {
         timeout: 3000,

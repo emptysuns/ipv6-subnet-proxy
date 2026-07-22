@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import net from 'net';
-
+import { unregisterIPv6Address } from '../utils/ipv6';
 export interface Session {
   id: string;
   userId: string;
@@ -29,7 +29,11 @@ export function setTargetSocket(sessionId: string, targetSocket: net.Socket): vo
 }
 
 export function closeSession(id: string): void {
+  const session = activeSessions.get(id);
+  if (!session) return;
   activeSessions.delete(id);
+  // Drop interface address when last session using it ends (refcount in ipv6.ts)
+  unregisterIPv6Address(session.ipv6Addr);
 }
 
 export function getActiveSessions(): Session[] {
@@ -49,7 +53,9 @@ export function forceDisconnect(id: string): boolean {
   if (session.targetSocket && !session.targetSocket.destroyed) {
     session.targetSocket.destroy();
   }
-  activeSessions.delete(id);
+  // destroy() triggers close handlers that also call closeSession; still
+  // release here so orphan sessions without relay listeners clean up.
+  closeSession(id);
   return true;
 }
 

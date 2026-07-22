@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../database/connection';
-import { parseCIDR, generateIPv6, registerIPv6Address, unregisterIPv6Address } from '../utils/ipv6';
+import { parseCIDR, generateIPv6, registerIPv6Address, forceUnregisterIPv6Address } from '../utils/ipv6';
 import { getLogger } from '../utils/logger';
 
 export function allocateForUser(
@@ -31,6 +31,8 @@ export function allocateForUser(
 
       if (existing) {
         log.debug({ userId, subnetId, ipv6Addr: existing.ipv6_addr }, 'Reusing sticky IPv6 address');
+        // Re-register so refcount / NDP stays correct across sessions & restarts
+        registerIPv6Address(existing.ipv6_addr);
         return existing.ipv6_addr;
       }
 
@@ -79,7 +81,7 @@ export function refreshStickyBinding(userId: string, subnetId: string): void {
     'SELECT ipv6_addr FROM sticky_bindings WHERE user_id = ? AND subnet_id = ?'
   ).get(userId, subnetId) as { ipv6_addr: string } | undefined;
   if (existing) {
-    unregisterIPv6Address(existing.ipv6_addr);
+    forceUnregisterIPv6Address(existing.ipv6_addr);
   }
 
   const result = db.prepare(
@@ -102,7 +104,7 @@ export function removeAllStickyBindings(userId: string): void {
     'SELECT ipv6_addr FROM sticky_bindings WHERE user_id = ?'
   ).all(userId) as { ipv6_addr: string }[];
   for (const a of addrs) {
-    unregisterIPv6Address(a.ipv6_addr);
+    forceUnregisterIPv6Address(a.ipv6_addr);
   }
   db.prepare('DELETE FROM sticky_bindings WHERE user_id = ?').run(userId);
 }

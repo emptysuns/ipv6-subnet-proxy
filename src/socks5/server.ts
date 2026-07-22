@@ -38,6 +38,11 @@ export function createSocks5Server(port: number): net.Server {
       log.debug({ err: err.message }, 'Client socket error');
     });
 
+    // Release allocated IPv6 if client drops before/after relay cleanup
+    clientSocket.on('close', () => {
+      if (sessionId) closeSession(sessionId);
+    });
+
     // Phase 1: Method negotiation
     clientSocket.once('data', (data) => {
       if (data.length < 3 || data[0] !== SOCKS_VERSION) {
