@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDb } from '../database/connection';
 import { parseCIDR, generateIPv6, registerIPv6Address, forceUnregisterIPv6Address } from '../utils/ipv6';
 import { getLogger } from '../utils/logger';
+import { getActiveSessions, forceDisconnect } from './sessions';
 
 export function allocateForUser(
   userId: string,
@@ -81,6 +82,13 @@ export function refreshStickyBinding(userId: string, subnetId: string): void {
     'SELECT ipv6_addr FROM sticky_bindings WHERE user_id = ? AND subnet_id = ?'
   ).get(userId, subnetId) as { ipv6_addr: string } | undefined;
   if (existing) {
+    // Live sessions still source from the old sticky IP — drop them so
+    // the next connect allocates a fresh address.
+    for (const s of getActiveSessions()) {
+      if (s.userId === userId && s.ipv6Addr === existing.ipv6_addr) {
+        forceDisconnect(s.id);
+      }
+    }
     forceUnregisterIPv6Address(existing.ipv6_addr);
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "ipv6-subnet-proxy",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "SOCKS5 proxy that distributes connections across an IPv6 /64 subnet",
   "main": "dist/index.js",
   "scripts": {
